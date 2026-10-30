@@ -1,0 +1,17 @@
+розділ,модель,налаштування,метрика,значення,параметрів_млн,мс_на_речення
+3.2,chords_ctx64_d128_L8,"CONTEXT_LEN=64, EMBED_DIM=128, N_HEADS=4, N_LAYERS=8, LR=0.0003, MAX_ITERS=6000, best_iter=5999",val_loss,2.191,1.657,
+3.2,chords_ctx128_d256_L4,"CONTEXT_LEN=128, EMBED_DIM=256, N_HEADS=8, N_LAYERS=4, LR=0.0005, MAX_ITERS=6000, best_iter=5750",val_loss,1.949,3.32,
+5,XLM-R base (cardiffnlp),"baseline (τ=0.5, сирий текст)",accuracy,0.9,278.0,8.5
+5,XLM-R base (cardiffnlp),"baseline (τ=0.5, сирий текст)",f1_macro,0.899,278.0,8.5
+5,XLM-R base (cardiffnlp),τ = 0.3,accuracy,0.85,278.0,8.5
+5,XLM-R base (cardiffnlp),τ = 0.3,f1_macro,0.847,278.0,8.5
+5,XLM-R base (cardiffnlp),τ = 0.7,accuracy,0.9,278.0,8.5
+5,XLM-R base (cardiffnlp),τ = 0.7,f1_macro,0.9,278.0,8.5
+5,XLM-R base (cardiffnlp),нижній регістр,accuracy,0.85,278.0,8.5
+5,XLM-R base (cardiffnlp),нижній регістр,f1_macro,0.847,278.0,8.5
+5,XLM-R base (cardiffnlp),без розділових знаків,accuracy,0.85,278.0,8.5
+5,XLM-R base (cardiffnlp),без розділових знаків,f1_macro,0.85,278.0,8.5
+5,mBERT stars (nlptown),"baseline (τ=0.5, сирий текст)",accuracy,0.7,167.4,6.6
+5,mBERT stars (nlptown),"baseline (τ=0.5, сирий текст)",f1_macro,0.7,167.4,6.6
+5,DistilmBERT (lxyuan),"baseline (τ=0.5, сирий текст)",accuracy,0.5,135.3,2.5
+5,DistilmBERT (lxyuan),"baseline (τ=0.5, сирий текст)",f1_macro,0.495,135.3,2.5
