@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Генератор акордових прогресій</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f7f6f2; --card:#fff; --text:#1f1f1c; --muted:#6b6a63; --line:#dedcd3;
+          --accent:#2f6fed; --accent-text:#fff; --ok:#1f8a4c; --warn:#b36b00; --err:#c0362c; --bar:#eef3ff; --bar-on:#cfe0ff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#17171a; --card:#222226; --text:#ececea; --muted:#9c9b94; --line:#37373d;
+          --accent:#6b9bff; --accent-text:#111; --ok:#4cc27f; --warn:#e0a040; --err:#ef7468; --bar:#262c3d; --bar-on:#34436b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, "Segoe UI", sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 16px; }
+  .status { font-size:.85rem; color:var(--muted); margin-bottom:16px; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--muted); margin-right:6px; }
+  .dot.ok { background:var(--ok); } .dot.bad { background:var(--err); }
+  textarea { width:100%; min-height:84px; padding:12px; font:inherit; color:var(--text); background:var(--card);
+             border:1px solid var(--line); border-radius:10px; resize:vertical; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+  button { font:inherit; padding:8px 16px; border-radius:8px; border:1px solid var(--line); background:var(--card);
+           color:var(--text); cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .chip { font-size:.85rem; padding:4px 10px; border-radius:99px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-top:16px; }
+  .key { font-size:1.2rem; font-weight:600; margin-bottom:10px; }
+  .bars { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:8px; }
+  .bar { background:var(--bar); border-radius:8px; padding:8px 10px; transition:background .15s; }
+  .bar.on { background:var(--bar-on); }
+  .bar small { display:block; color:var(--muted); font-size:.75rem; }
+  .bar b { font-size:1.15rem; }
+  .meta { color:var(--muted); font-size:.85rem; margin-top:10px; }
+  .msg { padding:10px 12px; border-radius:8px; margin-top:12px; border:1px solid var(--line); }
+  .msg.err { border-color:var(--err); color:var(--err); } .msg.warn { border-color:var(--warn); color:var(--warn); }
+  .msg.info { color:var(--muted); }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--accent);
+             border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:8px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Генератор акордових прогресій</h1>
+  <p class="sub">Опишіть настрій, тональність і довжину — локальна модель запропонує акорди, а програма перевірить їх за правилами теорії.</p>
+  <div class="status" id="status"><span class="dot"></span>перевіряю з'єднання з Ollama…</div>
+
+  <textarea id="prompt" maxlength="500" placeholder="Наприклад: сумна прогресія в ля мінорі, 4 такти"></textarea>
+  <div class="row">
+    <button class="primary" id="go">Згенерувати</button>
+    <button id="again" disabled>Інший варіант</button>
+  </div>
+  <div class="row" id="examples"></div>
+
+  <div id="out"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const EXAMPLES = ["Сумна прогресія в ля мінорі, 4 такти", "Поп-прогресія в соль мажорі, 8 тактів",
+                  "Блюз у мі, 12 тактів", "Бадьора прогресія в ре мажорі, 4 такти, по 2 акорди в такті"];
+let last = null, timer = null, audio = null, playing = false;
+
+EXAMPLES.forEach(t => { const b = document.createElement("button"); b.className = "chip"; b.textContent = t;
+  b.onclick = () => { $("prompt").value = t; $("prompt").focus(); }; $("examples").appendChild(b); });
+
+fetch("/api/health").then(r => r.json()).then(h => {
+  const el = $("status");
+  if (!h.ollama) el.innerHTML = '<span class="dot bad"></span>Ollama недоступна — запустіть її (команда <code>ollama serve</code>) і оновіть сторінку';
+  else if (!h.model_present) el.innerHTML = `<span class="dot bad"></span>Модель «${h.model}» не завантажена: <code>ollama pull ${h.model}</code>`;
+  else el.innerHTML = `<span class="dot ok"></span>Ollama працює, модель: ${h.model}`;
+}).catch(() => { $("status").innerHTML = '<span class="dot bad"></span>Сервер застосунку не відповідає'; });
+
+function show(html) { $("out").innerHTML = html; }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function run(variation) {
+  const prompt = $("prompt").value.trim();
+  if (!prompt) { show('<div class="msg err">Введіть запит, наприклад: «сумна прогресія в ля мінорі, 4 такти».</div>'); return; }
+  stopAudio();
+  $("go").disabled = $("again").disabled = true;
+  const t0 = performance.now();
+  show('<div class="msg info"><span class="spinner"></span><span id="wait"></span></div>');
+  timer = setInterval(() => { const el = $("wait"); if (el) el.textContent =
+    `Модель генерує прогресію, програма перевіряє її… ${((performance.now() - t0) / 1000).toFixed(0)} с`; }, 250);
+  const ctrl = new AbortController(); const abort = setTimeout(() => ctrl.abort(), 400000);
+  try {
+    const r = await fetch("/api/generate", { method: "POST", headers: {"Content-Type": "application/json"},
+                                             body: JSON.stringify({ prompt, variation }), signal: ctrl.signal });
+    render(await r.json(), prompt);
+  } catch (e) {
+    show(`<div class="msg err">${e.name === "AbortError" ? "Час очікування вичерпано." : "Не вдалося зв'язатися із сервером застосунку. Чи запущено server.py?"}</div>`);
+  } finally { clearInterval(timer); clearTimeout(abort); $("go").disabled = false; $("again").disabled = !last; }
+}
+
+function render(d, prompt) {
+  if (d.error) { show(`<div class="msg err">${esc(d.error)}</div>`); return; }
+  const meta = `Спроб: ${d.attempts} · токенів: ${d.tokens} · ${d.elapsed_s} с · ${esc(d.model)}`;
+  if (d.refusal) { last = null; show(`<div class="msg warn">Це не запит про акорди: ${esc(d.refusal)}.</div><div class="meta">${meta}</div>`); return; }
+  if (!d.bars) { last = null; show(`<div class="msg err">Модель не дала коректної прогресії після ${d.attempts} спроб: ${esc(d.issues.join("; "))}. Спробуйте переформулювати запит.</div><div class="meta">${meta}</div>`); return; }
+  last = d;
+  const bars = d.bars.map((bar, i) => `<div class="bar" id="bar${i}"><small>Такт ${i + 1}</small><b>${bar.map(c => esc(c.name)).join(" &nbsp;")}</b></div>`).join("");
+  const warn = d.ok ? "" : `<div class="msg warn">Результат не пройшов перевірку: ${esc(d.issues.join("; "))}. Показано останню спробу моделі — перевірте її самі.</div>`;
+  const retry = d.ok && d.attempts > 1 ? `<div class="msg info">Перша відповідь моделі не пройшла перевірку, з ${d.attempts}-ї спроби вийшло коректно.</div>` : "";
+  show(`<div class="card"><div class="key">${esc(d.key)}</div><div class="bars">${bars}</div>
+        <div class="row"><button class="primary" id="play">▶ Прослухати</button><button id="copy">Копіювати JSON</button></div>
+        ${warn}${retry}<div class="meta">${meta}</div></div>`);
+  $("play").onclick = () => playing ? stopAudio() : play(d);
+  $("copy").onclick = () => navigator.clipboard.writeText(JSON.stringify({ key: d.key, bars: d.bars.map(b => b.map(c => c.name)) }));
+}
+
+function tone(ctx, midi, start, dur) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = "triangle"; o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+  g.gain.setValueAtTime(0, start); g.gain.linearRampToValueAtTime(0.11, start + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.001, start + dur);
+  o.connect(g).connect(ctx.destination); o.start(start); o.stop(start + dur + 0.05);
+}
+function play(d) {
+  stopAudio(); playing = true; $("play").textContent = "■ Зупинити";
+  audio = new (window.AudioContext || window.webkitAudioContext)();
+  const barDur = 2.0; let t = audio.currentTime + 0.1; const t0 = t;
+  d.bars.forEach((bar, i) => {
+    const per = barDur / bar.length;
+    bar.forEach((ch, j) => { ch.notes.forEach(n => tone(audio, n, t + j * per, per * 0.95)); });
+    setTimeout(() => { document.querySelectorAll(".bar").forEach(b => b.classList.remove("on")); const el = $("bar" + i); if (el) el.classList.add("on"); },
+               (t - t0) * 1000);
+    t += barDur;
+  });
+  setTimeout(stopAudio, (t - t0) * 1000 + 200);
+}
+function stopAudio() {
+  playing = false; if (audio) { audio.close(); audio = null; }
+  document.querySelectorAll(".bar").forEach(b => b.classList.remove("on"));
+  const p = $("play"); if (p) p.textContent = "▶ Прослухати";
+}
+
+$("go").onclick = () => run(false);
+$("again").onclick = () => run(true);
+$("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(false); });
+</script>
+</body>
+</html>
